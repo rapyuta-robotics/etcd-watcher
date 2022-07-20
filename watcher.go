@@ -35,6 +35,7 @@ type Watcher struct {
 	running   bool
 	callback  func(string)
 	keyName   string
+	lastRev   string
 }
 
 // finalizer is the destructor for Watcher.
@@ -123,7 +124,12 @@ func (w *Watcher) Update() error {
 
 	log.Println("Set revision: ", newRev)
 	_, err = w.client.Put(context.TODO(), w.keyName, newRev)
-	return err
+	if err != nil {
+		return err
+	}
+
+	w.lastRev = newRev
+	return nil
 }
 
 // startWatch is a goroutine that watches the policy change.
@@ -131,6 +137,10 @@ func (w *Watcher) startWatch() error {
 	watcher := w.client.Watch(context.Background(), w.keyName)
 	for res := range watcher {
 		t := res.Events[0]
+		if string(t.Kv.Value) == w.lastRev {
+			return nil
+		}
+
 		if t.IsCreate() || t.IsModify() {
 			w.lock.RLock()
 			if w.callback != nil {
