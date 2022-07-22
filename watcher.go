@@ -142,10 +142,6 @@ func (w *Watcher) startWatch() error {
 		lastEvent := res.Events[len(res.Events)-1]
 		log.Printf("event value = %s, last rev = %s", string(lastEvent.Kv.Value), w.lastRev)
 
-		if string(lastEvent.Kv.Value) == w.lastRev {
-			return nil
-		}
-
 		if lastEvent.IsCreate() || lastEvent.IsModify() {
 			w.lock.RLock()
 			if w.callback != nil {
