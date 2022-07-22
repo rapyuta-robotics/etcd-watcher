@@ -16,6 +16,7 @@ package etcdwatcher
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"runtime"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"github.com/casbin/casbin/v2/persist"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	client "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 type Watcher struct {
@@ -36,6 +38,8 @@ type Watcher struct {
 	callback  func(string)
 	keyName   string
 	lastRev   string
+
+	distMu *concurrency.Mutex
 }
 
 // finalizer is the destructor for Watcher.
@@ -57,6 +61,13 @@ func NewWatcher(endpoints []string, keyName string) (persist.Watcher, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	sess, err := concurrency.NewSession(w.client)
+	if err != nil {
+		return nil, err
+	}
+
+	w.distMu = concurrency.NewMutex(sess, fmt.Sprintf("%s-mu", keyName))
 
 	// Call the destructor when the object is released.
 	runtime.SetFinalizer(w, finalizer)
@@ -104,7 +115,16 @@ func (w *Watcher) SetUpdateCallback(callback func(string)) error {
 // Enforcer.AddPolicy(), Enforcer.RemovePolicy(), etc.
 func (w *Watcher) Update() error {
 	rev := 0
-	resp, err := w.client.Get(context.Background(), w.keyName)
+
+	ctx := context.Background()
+
+	if err := w.distMu.Lock(ctx); err != nil {
+		return err
+	}
+
+	defer w.distMu.Unlock(ctx)
+
+	resp, err := w.client.Get(ctx, w.keyName)
 	if err != nil {
 		if err != rpctypes.ErrKeyNotFound {
 			return err
@@ -123,7 +143,7 @@ func (w *Watcher) Update() error {
 	newRev := strconv.Itoa(rev)
 
 	log.Println("Set revision: ", newRev)
-	_, err = w.client.Put(context.TODO(), w.keyName, newRev)
+	_, err = w.client.Put(ctx, w.keyName, newRev)
 	if err != nil {
 		return err
 	}
@@ -141,6 +161,10 @@ func (w *Watcher) startWatch() error {
 	for res := range watcher {
 		lastEvent := res.Events[len(res.Events)-1]
 		log.Printf("event value = %s, last rev = %s", string(lastEvent.Kv.Value), w.lastRev)
+
+		if string(lastEvent.Kv.Value) == w.lastRev {
+			return nil
+		}
 
 		if lastEvent.IsCreate() || lastEvent.IsModify() {
 			w.lock.RLock()
