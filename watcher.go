@@ -139,22 +139,21 @@ func (w *Watcher) Update() error {
 func (w *Watcher) startWatch() error {
 	watcher := w.client.Watch(context.Background(), w.keyName)
 	for res := range watcher {
-		t := res.Events[0]
+		lastEvent := res.Events[len(res.Events)-1]
+		log.Printf("event value = %s, last rev = %s", string(lastEvent.Kv.Value), w.lastRev)
 
-		log.Printf("event value = %s, last rev = %s", string(t.Kv.Value), w.lastRev)
-
-		if string(t.Kv.Value) == w.lastRev {
+		if string(lastEvent.Kv.Value) == w.lastRev {
 			return nil
 		}
 
-		if t.IsCreate() || t.IsModify() {
+		if lastEvent.IsCreate() || lastEvent.IsModify() {
 			w.lock.RLock()
 			if w.callback != nil {
-				w.callback(string(t.Kv.Value))
+				w.callback(string(lastEvent.Kv.Value))
 			}
 			w.lock.RUnlock()
 		}
-
 	}
+
 	return nil
 }
