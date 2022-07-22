@@ -128,7 +128,10 @@ func (w *Watcher) Update() error {
 		return err
 	}
 
+	log.Printf("New revision is %s", newRev)
+
 	w.lastRev = newRev
+
 	return nil
 }
 
@@ -137,6 +140,9 @@ func (w *Watcher) startWatch() error {
 	watcher := w.client.Watch(context.Background(), w.keyName)
 	for res := range watcher {
 		t := res.Events[0]
+
+		log.Printf("event value = %s, last rev = %s", string(t.Kv.Value), w.lastRev)
+
 		if string(t.Kv.Value) == w.lastRev {
 			return nil
 		}
